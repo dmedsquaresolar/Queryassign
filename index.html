@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Part-2 (Manager) — Technician Assign</title>
+<style>
+  body{margin:0;font-family:Arial;background:#0b1220;color:#fff}
+  .wrap{max-width:980px;margin:auto;padding:18px}
+  .card{background:#111a2e;border:1px solid #233252;border-radius:14px;padding:16px;margin:12px 0}
+  h2,h3{margin:0 0 10px}
+  label{font-size:12px;opacity:.85;display:block;margin:10px 0 6px}
+  input,select,textarea,button{width:100%;padding:10px;border-radius:10px;border:1px solid #233252;background:#0d1528;color:#fff;outline:none}
+  textarea{min-height:90px;resize:vertical}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:750px){.row{grid-template-columns:1fr}}
+  button{background:#4f8cff;font-weight:bold;cursor:pointer;border:none;margin-top:12px}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .btn2{background:#1a2a4a;border:1px solid #233252}
+  .hint{font-size:12px;opacity:.8;margin-top:6px;line-height:1.4}
+  .pill{display:inline-block;padding:6px 10px;border-radius:999px;background:#1a2a4a;border:1px solid #233252;font-size:12px;opacity:.95;margin:6px 6px 0 0}
+  .muted{opacity:.85}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  .actions button{width:auto;padding:10px 12px;margin-top:0}
+  .box2{background:#0d1528;border:1px solid #233252;border-radius:12px;padding:10px;margin-top:10px}
+  .box2 pre{white-space:pre-wrap;margin:0}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px}
+  .box{width:min(760px,100%);background:#111a2e;border:1px solid #233252;border-radius:14px;padding:16px}
+  .box pre{white-space:pre-wrap;background:#0d1528;border:1px solid #233252;padding:10px;border-radius:12px;margin:10px 0}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h2>Manager Panel — Technician Assign</h2>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Booking ID (NEW bookings)</label>
+        <select id="bookingId"></select>
+        <div class="actions">
+          <button class="btn2" type="button" id="btnReload">🔄 Reload</button>
+          <button class="btn2" type="button" id="btnDetails">📄 Load Details</button>
+        </div>
+        <div class="hint">Dropdown me sirf <b>NEW</b> bookings aayengi.</div>
+      </div>
+
+      <div>
+        <label>Technician (Team wise)</label>
+        <select id="techName" disabled>
+          <option value="">-- Select booking first --</option>
+        </select>
+        <div class="hint" id="teamHint">Team load hone ke baad technicians dikhenge.</div>
+      </div>
+    </div>
+
+    <label>Manager Note (optional)</label>
+    <textarea id="adminNote" placeholder="Any note for technician..."></textarea>
+
+    <button id="btnAssign" disabled>✅ Assign Technician</button>
+
+    <div class="box2" id="detailsBox" style="display:none">
+      <div class="muted"><b>Booking Details</b></div>
+      <pre class="mono" id="detailsText"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal" onclick="if(event.target.id==='modal')closeModal()">
+  <div class="box">
+    <h3 id="mt">Message</h3>
+    <pre id="mb"></pre>
+
+    <div class="actions" id="resultActions" style="display:none">
+      <button class="btn2" type="button" id="copyCust">📋 Copy Customer Msg</button>
+      <button class="btn2" type="button" id="copyTech">📋 Copy Technician Msg</button>
+      <button class="btn2" type="button" id="openCustWA">🟢 Open Customer WhatsApp</button>
+      <button class="btn2" type="button" id="openTechWA">🟢 Open Technician WhatsApp</button>
+    </div>
+
+    <button onclick="closeModal()">OK</button>
+  </div>
+</div>
+
+<script>
+/** ✅ Put your WebApp /exec URL here (same as Part-1) */
+const API_URL = "https://script.google.com/macros/s/AKfycby6J1PUZdgXAh-T7GVN5SJtw3lM_JeFUyDtj6Zk71ppOik-4wTkqW6zFyswwagNRs76UQ/exec";
+
+const $ = (id)=>document.getElementById(id);
+function openModal(title, body){
+  $("mt").textContent = title;
+  $("mb").textContent = body;
+  $("modal").style.display="flex";
+}
+function closeModal(){
+  $("modal").style.display="none";
+  $("resultActions").style.display="none";
+}
+
+async function getJSON(url){
+  const res = await fetch(url, { method:"GET" });
+  const txt = await res.text();
+  try{ return JSON.parse(txt); }catch(e){ throw new Error("Non-JSON:\n"+txt.slice(0,250)); }
+}
+async function postJSON(payload){
+  const res = await fetch(API_URL, {
+    method:"POST",
+    headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify(payload)
+  });
+  const txt = await res.text();
+  try{ return JSON.parse(txt); }catch(e){ throw new Error("Non-JSON:\n"+txt.slice(0,250)); }
+}
+
+function setBookingOptions(items){
+  const sel = $("bookingId");
+  sel.innerHTML = "";
+  if(!items || !items.length){
+    sel.innerHTML = `<option value="">-- No NEW bookings --</option>`;
+    return;
+  }
+  sel.innerHTML = `<option value="">-- Select Booking ID --</option>` +
+    items.map(x=>`<option value="${x.bookingId}">${x.bookingId} (${x.status})</option>`).join("");
+}
+
+let cachedDetails = null;
+let cachedTech = null;
+let lastLinks = { custWA:"", techWA:"", custText:"", techText:"" };
+
+async function loadBookingList(){
+  $("btnAssign").disabled = true;
+  $("techName").disabled = true;
+  $("techName").innerHTML = `<option value="">-- Select booking first --</option>`;
+  $("teamHint").textContent = "Loading...";
+  $("detailsBox").style.display="none";
+  cachedDetails = null;
+  cachedTech = null;
+
+  const out = await getJSON(API_URL + "?action=list&statuses=NEW");
+  if(!out || !out.ok) throw new Error(out?.error || "List failed");
+  setBookingOptions(out.items || []);
+  $("teamHint").textContent = "Booking select karke Details load karo.";
+}
+
+function formatDetails(b){
+  const lines = [];
+  lines.push(`BookingID: ${b.BookingID || ""}`);
+  lines.push(`Status: ${b.Status || ""}`);
+  lines.push(`Service: ${b.Service || ""}`);
+  lines.push(`Date/Slot: ${b.Date || ""} | ${b.Slot || ""}`);
+  lines.push(`Customer: ${b.Name || ""}`);
+  lines.push(`Phone: ${b.Phone || ""}`);
+  lines.push(`Email: ${b.Email || ""}`);
+  lines.push(`Address: ${b.Address || ""}`);
+  lines.push(`Pincode: ${b.Pincode || ""}`);
+  lines.push(`Location: ${b.LocationLink || ""}`);
+  lines.push(`Problem: ${b.Problem || ""}`);
+  lines.push(`Team: ${b.TeamName || ""} (${b.TeamId || ""})`);
+  return lines.join("\n");
+}
+
+async function loadDetailsAndTech(){
+  const bid = $("bookingId").value.trim();
+  if(!bid){
+    openModal("❌ Error", "Please select Booking ID");
+    return;
+  }
+
+  $("btnAssign").disabled = true;
+  $("techName").disabled = true;
+  $("teamHint").textContent = "Loading team & technicians...";
+
+  // details (1 call)
+  const det = await getJSON(API_URL + "?action=details&bookingId=" + encodeURIComponent(bid));
+  if(!det || !det.ok) throw new Error(det?.error || "Details failed");
+  cachedDetails = det.booking;
+
+  $("detailsText").textContent = formatDetails(cachedDetails);
+  $("detailsBox").style.display = "block";
+
+  // tech list (1 call)
+  const tl = await getJSON(API_URL + "?action=techList&bookingId=" + encodeURIComponent(bid));
+  if(!tl || !tl.ok) throw new Error(tl?.error || "Tech list failed");
+  cachedTech = tl;
+
+  const techSel = $("techName");
+  techSel.innerHTML = `<option value="">-- Select Technician --</option>` +
+    (tl.techs || []).map(t=>`<option value="${t.name}">${t.name}</option>`).join("");
+  techSel.disabled = false;
+
+  $("teamHint").innerHTML = `Team: <span class="pill">${tl.teamName || "-"}</span> <span class="pill">${tl.teamId || "-"}</span>`;
+  updateAssignBtn();
+}
+
+function updateAssignBtn(){
+  const ok = $("bookingId").value.trim() && $("techName").value.trim();
+  $("btnAssign").disabled = !ok;
+}
+
+function copyToClipboard(text){
+  navigator.clipboard.writeText(text).then(()=>{
+    openModal("✅ Copied", "Message copied to clipboard.");
+  }).catch(()=>{
+    openModal("❌ Copy Failed", "Clipboard permission nahi mila. Manually select/copy karo.");
+  });
+}
+
+$("btnReload").onclick = async ()=>{
+  try{
+    $("btnReload").disabled = true;
+    await loadBookingList();
+  }catch(e){
+    openModal("❌ Error", String(e));
+  }finally{
+    $("btnReload").disabled = false;
+  }
+};
+
+$("btnDetails").onclick = async ()=>{
+  try{
+    $("btnDetails").disabled = true;
+    await loadDetailsAndTech();
+  }catch(e){
+    openModal("❌ Error", String(e));
+    $("teamHint").textContent = "Failed. Reload karke try karo.";
+  }finally{
+    $("btnDetails").disabled = false;
+  }
+};
+
+$("bookingId").addEventListener("change", ()=>{
+  cachedDetails = null; cachedTech = null;
+  $("detailsBox").style.display="none";
+  $("techName").disabled = true;
+  $("techName").innerHTML = `<option value="">-- Select booking first --</option>`;
+  $("teamHint").textContent = "Details load karo.";
+  updateAssignBtn();
+});
+
+$("techName").addEventListener("change", updateAssignBtn);
+
+$("btnAssign").onclick = async ()=>{
+  try{
+    const bid = $("bookingId").value.trim();
+    const techName = $("techName").value.trim();
+    if(!bid || !techName) return;
+
+    $("btnAssign").disabled = true;
+
+    const out = await postJSON({
+      action:"assign",
+      bookingId: bid,
+      technicianName: techName,
+      adminNote: $("adminNote").value.trim()
+    });
+
+    if(!out || !out.ok) throw new Error(out?.error || "Assign failed");
+
+    lastLinks.custWA = out.waLinkCustomer || "";
+    lastLinks.techWA = out.waLinkTech || "";
+    lastLinks.custText = out.waTextCustomer || "";
+    lastLinks.techText = out.waTextTech || "";
+
+    // show result
+    let msg = `Assigned ✅\nBookingID: ${bid}\nTechnician: ${out.assignedTo} (${out.assignedPhone})`;
+    msg += `\n\nCustomer WhatsApp Text:\n${lastLinks.custText || "-"}`;
+    msg += `\n\nTechnician WhatsApp/SMS Text:\n${lastLinks.techText || "-"}`;
+
+    openModal("✅ Assigned", msg);
+    $("resultActions").style.display = "flex";
+
+    $("copyCust").onclick = ()=>copyToClipboard(lastLinks.custText || "");
+    $("copyTech").onclick = ()=>copyToClipboard(lastLinks.techText || "");
+    $("openCustWA").onclick = ()=>{ if(lastLinks.custWA) window.open(lastLinks.custWA, "_blank"); else openModal("❌", "Customer WhatsApp link blank"); };
+    $("openTechWA").onclick = ()=>{ if(lastLinks.techWA) window.open(lastLinks.techWA, "_blank"); else openModal("❌", "Technician WhatsApp link blank"); };
+
+    // refresh list (assigned bookings will disappear from NEW)
+    await loadBookingList();
+    $("adminNote").value = "";
+  }catch(e){
+    openModal("❌ Error", String(e));
+    updateAssignBtn();
+  }
+};
+
+(async function init(){
+  try{
+    await loadBookingList();
+  }catch(e){
+    openModal("❌ Error", String(e) + "\n\nAPI_URL check karo aur WebApp access 'Anyone' hona chahiye.");
+  }
+})();
+</script>
+</body>
+</html>
